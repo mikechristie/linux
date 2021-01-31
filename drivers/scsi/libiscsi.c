@@ -497,13 +497,13 @@ void iscsi_put_task(struct iscsi_task *task)
 EXPORT_SYMBOL_GPL(iscsi_put_task);
 
 /**
- * iscsi_complete_task - finish a task
+ * iscsi_finish_task - finish a task
  * @task: iscsi cmd task
  * @state: state to complete task with
  *
  * Must be called with session back_lock.
  */
-static void iscsi_complete_task(struct iscsi_task *task, int state)
+static void iscsi_finish_task(struct iscsi_task *task, int state)
 {
 	struct iscsi_conn *conn = task->conn;
 
@@ -545,7 +545,7 @@ void iscsi_complete_scsi_task(struct iscsi_task *task,
 
 	conn->last_recv = jiffies;
 	__iscsi_update_cmdsn(conn->session, exp_cmdsn, max_cmdsn);
-	iscsi_complete_task(task, ISCSI_TASK_COMPLETED);
+	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 }
 EXPORT_SYMBOL_GPL(iscsi_complete_scsi_task);
 
@@ -621,7 +621,7 @@ static void fail_scsi_task(struct iscsi_task *task, int err)
 	sc = task->sc;
 	sc->result = err << 16;
 	scsi_set_resid(sc, scsi_bufflen(sc));
-	iscsi_complete_task(task, state);
+	iscsi_finish_task(task, state);
 	spin_unlock_bh(&conn->session->back_lock);
 }
 
@@ -893,7 +893,7 @@ out:
 	ISCSI_DBG_SESSION(session, "cmd rsp done [sc %p res %d itt 0x%x]\n",
 			  sc, sc->result, task->itt);
 	conn->scsirsp_pdus_cnt++;
-	iscsi_complete_task(task, ISCSI_TASK_COMPLETED);
+	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 }
 
 /**
@@ -934,7 +934,7 @@ iscsi_data_in_rsp(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 			  "[sc %p res %d itt 0x%x]\n",
 			  sc, sc->result, task->itt);
 	conn->scsirsp_pdus_cnt++;
-	iscsi_complete_task(task, ISCSI_TASK_COMPLETED);
+	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 }
 
 static void iscsi_tmf_rsp(struct iscsi_conn *conn, struct iscsi_hdr *hdr)
@@ -1019,7 +1019,7 @@ static int iscsi_nop_out_rsp(struct iscsi_task *task,
 			rc = ISCSI_ERR_CONN_FAILED;
 	} else
 		mod_timer(&conn->transport_timer, jiffies + conn->recv_timeout);
-	iscsi_complete_task(task, ISCSI_TASK_COMPLETED);
+	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 	return rc;
 }
 
@@ -1259,7 +1259,7 @@ int __iscsi_complete_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 		}
 
 		iscsi_tmf_rsp(conn, hdr);
-		iscsi_complete_task(task, ISCSI_TASK_COMPLETED);
+		iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 		break;
 	case ISCSI_OP_NOOP_IN:
 		iscsi_update_cmdsn(session, (struct iscsi_nopin*)hdr);
@@ -1282,7 +1282,7 @@ out:
 recv_pdu:
 	if (iscsi_recv_pdu(conn->cls_conn, hdr, data, datalen))
 		rc = ISCSI_ERR_CONN_FAILED;
-	iscsi_complete_task(task, ISCSI_TASK_COMPLETED);
+	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 	return rc;
 }
 EXPORT_SYMBOL_GPL(__iscsi_complete_pdu);
@@ -1820,7 +1820,7 @@ prepd_reject:
 	spin_unlock_bh(&session->frwd_lock);
 
 	spin_lock_bh(&session->back_lock);
-	iscsi_complete_task(task, ISCSI_TASK_REQUEUE_SCSIQ);
+	iscsi_finish_task(task, ISCSI_TASK_REQUEUE_SCSIQ);
 	spin_unlock_bh(&session->back_lock);
 reject:
 	ISCSI_DBG_SESSION(session, "cmd 0x%x rejected (%d)\n",
@@ -1831,7 +1831,7 @@ prepd_fault:
 	spin_unlock_bh(&session->frwd_lock);
 
 	spin_lock_bh(&session->back_lock);
-	iscsi_complete_task(task, ISCSI_TASK_REQUEUE_SCSIQ);
+	iscsi_finish_task(task, ISCSI_TASK_REQUEUE_SCSIQ);
 	spin_unlock_bh(&session->back_lock);
 fault:
 	ISCSI_DBG_SESSION(session, "iscsi: cmd 0x%x is not queued (%d)\n",
@@ -3333,7 +3333,7 @@ fail_mgmt_tasks(struct iscsi_session *session, struct iscsi_conn *conn)
 		state = ISCSI_TASK_ABRT_SESS_RECOV;
 		if (task->state == ISCSI_TASK_PENDING)
 			state = ISCSI_TASK_COMPLETED;
-		iscsi_complete_task(task, state);
+		iscsi_finish_task(task, state);
 		spin_unlock_bh(&session->back_lock);
 	}
 }
