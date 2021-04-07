@@ -518,6 +518,9 @@ static void iscsi_finish_task(struct iscsi_task *task, int state)
 	WARN_ON_ONCE(task->state == ISCSI_TASK_FREE);
 	task->state = state;
 
+	if (task->state == ISCSI_TASK_COMPLETED)
+		WRITE_ONCE(conn->last_recv, jiffies);
+
 	if (READ_ONCE(conn->ping_task) == task)
 		WRITE_ONCE(conn->ping_task, NULL);
 
@@ -543,7 +546,6 @@ void iscsi_complete_scsi_task(struct iscsi_task *task,
 
 	ISCSI_DBG_SESSION(conn->session, "[itt 0x%x]\n", task->itt);
 
-	conn->last_recv = jiffies;
 	__iscsi_update_cmdsn(conn->session, exp_cmdsn, max_cmdsn);
 	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 }
@@ -1149,12 +1151,10 @@ EXPORT_SYMBOL_GPL(iscsi_itt_to_task);
 int __iscsi_complete_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 			 char *data, int datalen)
 {
-	struct iscsi_session *session = conn->session;
 	int opcode = hdr->opcode & ISCSI_OPCODE_MASK, rc = 0;
-	struct iscsi_task *task;
+	struct iscsi_task *task = NULL;
 	uint32_t itt;
 
-	conn->last_recv = jiffies;
 	rc = iscsi_verify_itt(conn, hdr->itt);
 	if (rc)
 		return rc;
@@ -1164,10 +1164,60 @@ int __iscsi_complete_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 	else
 		itt = ~0U;
 
-	ISCSI_DBG_SESSION(session, "[op 0x%x cid %d itt 0x%x len %d]\n",
-			  opcode, conn->id, itt, datalen);
+	if (itt == ~0U)
+		return iscsi_complete_task(conn, NULL, hdr, data, datalen);
 
-	if (itt == ~0U) {
+	switch (opcode) {
+	case ISCSI_OP_SCSI_CMD_RSP:
+	case ISCSI_OP_SCSI_DATA_IN:
+		task = iscsi_itt_to_ctask(conn, hdr->itt);
+		break;
+	case ISCSI_OP_R2T:
+		/* LLD handles R2Ts if they need to. */
+		return 0;
+	case ISCSI_OP_LOGOUT_RSP:
+	case ISCSI_OP_LOGIN_RSP:
+	case ISCSI_OP_TEXT_RSP:
+	case ISCSI_OP_SCSI_TMFUNC_RSP:
+	case ISCSI_OP_NOOP_IN:
+		task = iscsi_itt_to_task(conn, hdr->itt);
+		break;
+	}
+
+	if (!task)
+		return ISCSI_ERR_BAD_OPCODE;
+
+	return iscsi_complete_task(conn, task, hdr, data, datalen);
+}
+EXPORT_SYMBOL_GPL(__iscsi_complete_pdu);
+
+/**
+ * iscsi_complete_task - complete iscsi task
+ * @conn: iscsi conn
+ * @task: iscsi task
+ * @hdr: iscsi response header with all fields set except the itt
+ * @data: data buffer
+ * @datalen: len of data buffer
+ *
+ * Completes task processing by freeing any resources allocated at
+ * queuecommand or send generic.
+ *
+ * This function should be used by drivers that do not use the libiscsi
+ * itt for the PDU that was sent to the target and has access to the
+ * iscsi_task struct directly.
+ *
+ * Session back_lock must be held.
+ */
+int iscsi_complete_task(struct iscsi_conn *conn, struct iscsi_task *task,
+			struct iscsi_hdr *hdr, char *data, int datalen)
+{
+	struct iscsi_session *session = conn->session;
+	int opcode = hdr->opcode & ISCSI_OPCODE_MASK, rc = 0;
+
+	ISCSI_DBG_SESSION(session, "[op 0x%x cid %d itt 0x%x len %d]\n",
+			  opcode, conn->id, task ? task->itt : ~0U, datalen);
+
+	if (!task) {
 		iscsi_update_cmdsn(session, (struct iscsi_nopin*)hdr);
 
 		switch(opcode) {
@@ -1202,33 +1252,12 @@ int __iscsi_complete_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 		goto out;
 	}
 
-	switch(opcode) {
-	case ISCSI_OP_SCSI_CMD_RSP:
-	case ISCSI_OP_SCSI_DATA_IN:
-		task = iscsi_itt_to_ctask(conn, hdr->itt);
-		if (!task)
-			return ISCSI_ERR_BAD_ITT;
-		task->last_xfer = jiffies;
-		break;
-	case ISCSI_OP_R2T:
-		/*
-		 * LLD handles R2Ts if they need to.
-		 */
-		return 0;
-	case ISCSI_OP_LOGOUT_RSP:
-	case ISCSI_OP_LOGIN_RSP:
-	case ISCSI_OP_TEXT_RSP:
-	case ISCSI_OP_SCSI_TMFUNC_RSP:
-	case ISCSI_OP_NOOP_IN:
-		task = iscsi_itt_to_task(conn, hdr->itt);
-		if (!task)
-			return ISCSI_ERR_BAD_ITT;
-		break;
-	default:
-		return ISCSI_ERR_BAD_OPCODE;
-	}
+	task->last_xfer = jiffies;
 
 	switch(opcode) {
+	case ISCSI_OP_R2T:
+		/* LLD handles R2Ts if they need to. */
+		break;
 	case ISCSI_OP_SCSI_CMD_RSP:
 		iscsi_scsi_cmd_rsp(conn, hdr, task, data, datalen);
 		break;
@@ -1285,7 +1314,7 @@ recv_pdu:
 	iscsi_finish_task(task, ISCSI_TASK_COMPLETED);
 	return rc;
 }
-EXPORT_SYMBOL_GPL(__iscsi_complete_pdu);
+EXPORT_SYMBOL_GPL(iscsi_complete_task);
 
 int iscsi_complete_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 		       char *data, int datalen)
@@ -2032,7 +2061,8 @@ static void iscsi_start_tx(struct iscsi_conn *conn)
 static int iscsi_has_ping_timed_out(struct iscsi_conn *conn)
 {
 	if (READ_ONCE(conn->ping_task) &&
-	    time_before_eq(conn->last_recv + (conn->recv_timeout * HZ) +
+	    time_before_eq(READ_ONCE(conn->last_recv) +
+			   (conn->recv_timeout * HZ) +
 			   (conn->ping_timeout * HZ), jiffies))
 		return 1;
 	else
@@ -2220,7 +2250,7 @@ static void iscsi_check_transport_timeouts(struct timer_list *t)
 		goto done;
 
 	recv_timeout *= HZ;
-	last_recv = conn->last_recv;
+	last_recv = READ_ONCE(conn->last_recv);
 
 	if (iscsi_has_ping_timed_out(conn)) {
 		iscsi_conn_printk(KERN_ERR, conn, "ping timeout of %d secs "
@@ -3274,7 +3304,7 @@ int iscsi_conn_start(struct iscsi_cls_conn *cls_conn)
 	WRITE_ONCE(session->state, ISCSI_STATE_LOGGED_IN);
 	session->queued_cmdsn = session->cmdsn;
 
-	conn->last_recv = jiffies;
+	WRITE_ONCE(conn->last_recv, jiffies);
 	conn->last_ping = jiffies;
 	if (conn->recv_timeout && conn->ping_timeout)
 		mod_timer(&conn->transport_timer,
