@@ -629,6 +629,15 @@ free_worker:
 	return ret;
 }
 
+/* Caller must have device mutex */
+static int vhost_worker_try_create_def(struct vhost_dev *dev)
+{
+	if (!dev->use_worker || dev->worker)
+		return 0;
+
+	return vhost_worker_create(dev);
+}
+
 /* Caller should have device mutex */
 long vhost_dev_set_owner(struct vhost_dev *dev)
 {
@@ -643,11 +652,6 @@ long vhost_dev_set_owner(struct vhost_dev *dev)
 	vhost_attach_mm(dev);
 
 	dev->kcov_handle = kcov_common_handle();
-	if (dev->use_worker) {
-		err = vhost_worker_create(dev);
-		if (err)
-			goto err_worker;
-	}
 
 	err = vhost_dev_alloc_iovecs(dev);
 	if (err)
@@ -655,8 +659,6 @@ long vhost_dev_set_owner(struct vhost_dev *dev)
 
 	return 0;
 err_iovecs:
-	vhost_worker_free(dev);
-err_worker:
 	vhost_detach_mm(dev);
 	dev->kcov_handle = 0;
 err_mm:
@@ -1665,6 +1667,13 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 			r = -EFAULT;
 			break;
 		}
+
+		if (f.fd != VHOST_FILE_UNBIND) {
+			r = vhost_worker_try_create_def(d);
+			if (r)
+				break;
+		}
+
 		eventfp = f.fd == VHOST_FILE_UNBIND ? NULL : eventfd_fget(f.fd);
 		if (IS_ERR(eventfp)) {
 			r = PTR_ERR(eventfp);
