@@ -1207,7 +1207,7 @@ int qedi_cleanup_all_io(struct qedi_ctx *qedi, struct qedi_conn *qedi_conn,
 			}
 		}
 		qedi_conn->cmd_cleanup_req++;
-		qedi_iscsi_cleanup_task(ctask, true);
+		qedi_iscsi_cleanup_task(ctask);
 
 		cmd->io_cmd_in_list = false;
 		list_del_init(&cmd->io_cmd);
@@ -1395,15 +1395,14 @@ static void qedi_abort_work(struct work_struct *work)
 	qedi_cmd->list_tmf_work = list_work;
 
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_SCSI_TM,
-		  "Queue tmf work=%p, list node=%p, cid=0x%x, tmf flags=0x%x\n",
-		  list_work->ptr_tmf_work, list_work, qedi_conn->iscsi_conn_id,
-		  tmf_hdr->flags);
+		  "Queue tmf list node=%p, cid=0x%x, tmf flags=0x%x\n",
+		  list_work, qedi_conn->iscsi_conn_id, tmf_hdr->flags);
 
 	spin_lock_bh(&qedi_conn->tmf_work_lock);
 	list_add_tail(&list_work->list, &qedi_conn->tmf_work_list);
 	spin_unlock_bh(&qedi_conn->tmf_work_lock);
 
-	qedi_iscsi_cleanup_task(ctask, false);
+	qedi_iscsi_cleanup_task(ctask);
 
 	rval = qedi_wait_for_cleanup_request(qedi, qedi_conn, ctask, qedi_cmd,
 					     list_work);
@@ -2147,7 +2146,7 @@ int qedi_iscsi_send_ioreq(struct iscsi_task *task)
 	return 0;
 }
 
-int qedi_iscsi_cleanup_task(struct iscsi_task *task, bool mark_cmd_node_deleted)
+int qedi_iscsi_cleanup_task(struct iscsi_task *task)
 {
 	struct iscsi_task_params task_params;
 	struct qedi_endpoint *ep;
