@@ -1849,10 +1849,8 @@ void qedi_clear_task_idx(struct qedi_ctx *qedi, int idx)
 			 "FW task context, already cleared, tid=0x%x\n", idx);
 }
 
-void qedi_update_itt_map(struct qedi_ctx *qedi, u32 tid, u32 proto_itt,
-			 struct qedi_cmd *cmd)
+void qedi_update_itt_map(struct qedi_ctx *qedi, u32 tid, struct qedi_cmd *cmd)
 {
-	qedi->itt_map[tid].itt = proto_itt;
 	qedi->itt_map[tid].p_cmd = cmd;
 
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_CONN,
@@ -1875,14 +1873,6 @@ void qedi_get_task_tid(struct qedi_ctx *qedi, u32 itt, s16 *tid)
 	}
 
 	WARN_ON(1);
-}
-
-void qedi_get_proto_itt(struct qedi_ctx *qedi, u32 tid, u32 *proto_itt)
-{
-	*proto_itt = qedi->itt_map[tid].itt;
-	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_CONN,
-		  "Get itt map tid [0x%x with proto itt[0x%x]",
-		  tid, *proto_itt);
 }
 
 struct qedi_cmd *qedi_get_cmd_from_tid(struct qedi_ctx *qedi, u32 tid)
