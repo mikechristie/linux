@@ -97,7 +97,6 @@ enum {
 	ISCSI_TASK_PENDING,
 	ISCSI_TASK_RUNNING,
 	ISCSI_TASK_ABRT_TMF,		/* aborted due to TMF */
-	ISCSI_TASK_ABRT_SESS_RECOV,	/* aborted due to session recovery */
 	ISCSI_TASK_REQUEUE_SCSIQ,	/* qcmd requeueing to scsi-ml */
 };
 
@@ -167,8 +166,7 @@ static inline void* iscsi_next_hdr(struct iscsi_task *task)
 static inline bool iscsi_task_is_completed(struct iscsi_task *task)
 {
 	return task->state == ISCSI_TASK_COMPLETED ||
-	       task->state == ISCSI_TASK_ABRT_TMF ||
-	       task->state == ISCSI_TASK_ABRT_SESS_RECOV;
+	       task->state == ISCSI_TASK_ABRT_TMF;
 }
 
 /* Connection's states */
