@@ -595,26 +595,6 @@ static void qedi_scsi_completion(struct qedi_ctx *qedi,
 		goto error;
 	}
 
-	if (!sc_cmd->SCp.ptr) {
-		QEDI_WARN(&qedi->dbg_ctx,
-			  "SCp.ptr is NULL, returned in another context.\n");
-		goto error;
-	}
-
-	if (!sc_cmd->request) {
-		QEDI_WARN(&qedi->dbg_ctx,
-			  "sc_cmd->request is NULL, sc_cmd=%p.\n",
-			  sc_cmd);
-		goto error;
-	}
-
-	if (!sc_cmd->request->q) {
-		QEDI_WARN(&qedi->dbg_ctx,
-			  "request->q is NULL so request is not valid, sc_cmd=%p.\n",
-			  sc_cmd);
-		goto error;
-	}
-
 	qedi_iscsi_unmap_sg_list(cmd);
 
 	hdr = (struct iscsi_scsi_rsp *)task->hdr;
