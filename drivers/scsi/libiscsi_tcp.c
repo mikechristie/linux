@@ -546,14 +546,7 @@ static int iscsi_tcp_r2t_rsp(struct iscsi_conn *conn, struct iscsi_hdr *hdr)
 		rc = ISCSI_ERR_PROTO;
 		goto put_task;
 	}
-	/*
-	 * A bad target might complete the cmd before we have handled R2Ts
-	 * so get a ref to the task that will be dropped in the xmit path.
-	 */
-	if (task->state != ISCSI_TASK_RUNNING) {
-		/* Let the path that got the early rsp complete it */
-		goto put_task;
-	}
+
 	task->last_xfer = jiffies;
 
 	tcp_conn = conn->dd_data;
