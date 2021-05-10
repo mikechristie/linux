@@ -1841,15 +1841,14 @@ int iscsi_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *sc)
 		goto fault;
 	}
 
-	spin_lock_bh(&session->frwd_lock);
 	conn = session->leadconn;
 	if (!conn) {
-		spin_unlock_bh(&session->frwd_lock);
 		reason = FAILURE_SESSION_FREED;
 		sc->result = DID_NO_CONNECT << 16;
 		goto fault;
 	}
 
+	spin_lock_bh(&session->frwd_lock);
 	if (test_bit(ISCSI_SUSPEND_BIT, &conn->suspend_tx)) {
 		spin_unlock_bh(&session->frwd_lock);
 		reason = FAILURE_SESSION_IN_RECOVERY;
