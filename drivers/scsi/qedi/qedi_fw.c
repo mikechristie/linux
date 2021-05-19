@@ -1335,16 +1335,13 @@ static void qedi_abort_work(struct work_struct *work)
 	mtask = qedi_cmd->task;
 	tmf_hdr = (struct iscsi_tm *)mtask->hdr;
 
-	spin_lock_bh(&conn->session->back_lock);
-	ctask = iscsi_itt_to_ctask(conn, tmf_hdr->rtt);
+	ctask = __iscsi_itt_to_ctask(conn, tmf_hdr->rtt);
 	if (!ctask) {
-		spin_unlock_bh(&conn->session->back_lock);
 		QEDI_ERR(&qedi->dbg_ctx, "Invalid RTT. Letting abort timeout.\n");
 		goto clear_cleanup;
 	}
 
 	if (iscsi_task_is_completed(ctask)) {
-		spin_unlock_bh(&conn->session->back_lock);
 		QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
 			  "Task already completed\n");
 		/*
@@ -1353,7 +1350,6 @@ static void qedi_abort_work(struct work_struct *work)
 		 */
 		goto send_tmf;
 	}
-	spin_unlock_bh(&conn->session->back_lock);
 
 	cmd = (struct qedi_cmd *)ctask->dd_data;
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,

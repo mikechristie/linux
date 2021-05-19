@@ -537,34 +537,31 @@ static int iscsi_tcp_r2t_rsp(struct iscsi_conn *conn, struct iscsi_hdr *hdr)
 	u32 data_length;
 	u32 data_offset;
 	int r2tsn;
-	int rc;
+	int rc = 0;
 
-	spin_lock(&session->back_lock);
 	task = iscsi_itt_to_ctask(conn, hdr->itt);
 	if (!task) {
-		spin_unlock(&session->back_lock);
 		return ISCSI_ERR_BAD_ITT;
 	} else if (task->sc->sc_data_direction != DMA_TO_DEVICE) {
-		spin_unlock(&session->back_lock);
-		return ISCSI_ERR_PROTO;
+		rc = ISCSI_ERR_PROTO;
+		goto put_task;
 	}
 	/*
 	 * A bad target might complete the cmd before we have handled R2Ts
 	 * so get a ref to the task that will be dropped in the xmit path.
 	 */
 	if (task->state != ISCSI_TASK_RUNNING) {
-		spin_unlock(&session->back_lock);
 		/* Let the path that got the early rsp complete it */
-		return 0;
+		goto put_task;
 	}
 	task->last_xfer = jiffies;
-	__iscsi_get_task(task);
 
 	tcp_conn = conn->dd_data;
 	rhdr = (struct iscsi_r2t_rsp *)tcp_conn->in.hdr;
 	/* fill-in new R2T associated with the task */
+	spin_lock_bh(&session->back_lock);
 	iscsi_update_cmdsn(session, (struct iscsi_nopin *)rhdr);
-	spin_unlock(&session->back_lock);
+	spin_unlock_bh(&session->back_lock);
 
 	if (tcp_conn->in.datalen) {
 		iscsi_conn_printk(KERN_ERR, conn,
@@ -713,14 +710,15 @@ iscsi_tcp_hdr_dissect(struct iscsi_conn *conn, struct iscsi_hdr *hdr)
 
 	switch(opcode) {
 	case ISCSI_OP_SCSI_DATA_IN:
-		spin_lock(&conn->session->back_lock);
 		task = iscsi_itt_to_ctask(conn, hdr->itt);
-		if (!task)
+		if (!task) {
 			rc = ISCSI_ERR_BAD_ITT;
-		else
-			rc = iscsi_tcp_data_in(conn, task);
+			break;
+		}
+
+		rc = iscsi_tcp_data_in(conn, task);
 		if (rc) {
-			spin_unlock(&conn->session->back_lock);
+			iscsi_put_task(task);
 			break;
 		}
 
@@ -753,11 +751,11 @@ iscsi_tcp_hdr_dissect(struct iscsi_conn *conn, struct iscsi_hdr *hdr)
 						   tcp_conn->in.datalen,
 						   iscsi_tcp_process_data_in,
 						   rx_hash);
-			spin_unlock(&conn->session->back_lock);
+			iscsi_put_task(task);
 			return rc;
 		}
-		rc = __iscsi_complete_pdu(conn, hdr, NULL, 0);
-		spin_unlock(&conn->session->back_lock);
+		rc = iscsi_complete_pdu(conn, hdr, NULL, 0);
+		iscsi_put_task(task);
 		break;
 	case ISCSI_OP_SCSI_CMD_RSP:
 		if (tcp_conn->in.datalen) {

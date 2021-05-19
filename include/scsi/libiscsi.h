@@ -142,7 +142,11 @@ struct iscsi_task {
 	/* T10 protection information */
 	bool			protected;
 
-	/* state set/tested under session->lock */
+	/*
+	 * task lock must be held when using sc or state to check if task has
+	 * completed
+	 */
+	spinlock_t		lock;
 	int			state;
 	refcount_t		refcount;
 	struct list_head	running;	/* running cmd list */
@@ -480,6 +484,7 @@ extern int iscsi_complete_pdu(struct iscsi_conn *, struct iscsi_hdr *,
 extern int __iscsi_complete_pdu(struct iscsi_conn *, struct iscsi_hdr *,
 				char *, int);
 extern int iscsi_verify_itt(struct iscsi_conn *, itt_t);
+extern struct iscsi_task *__iscsi_itt_to_ctask(struct iscsi_conn *, itt_t);
 extern struct iscsi_task *iscsi_itt_to_ctask(struct iscsi_conn *, itt_t);
 extern struct iscsi_task *iscsi_itt_to_task(struct iscsi_conn *, itt_t);
 extern void iscsi_requeue_task(struct iscsi_task *task);
