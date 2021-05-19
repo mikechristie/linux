@@ -1116,7 +1116,7 @@ int qla4xxx_flash_ddb_change(struct scsi_qla_host *ha, uint32_t fw_ddb_index,
 			status = QLA_SUCCESS;
 			break;
 		case DDB_DS_SESSION_FAILED:
-			iscsi_block_session(ddb_entry->sess);
+			iscsi_block_session(ddb_entry->sess, false);
 			if (!test_bit(DF_RELOGIN, &ddb_entry->flags))
 				qla4xxx_arm_relogin_timer(ddb_entry);
 			status = QLA_SUCCESS;
@@ -1126,7 +1126,7 @@ int qla4xxx_flash_ddb_change(struct scsi_qla_host *ha, uint32_t fw_ddb_index,
 	case DDB_DS_SESSION_ACTIVE:
 		switch (state) {
 		case DDB_DS_SESSION_FAILED:
-			iscsi_block_session(ddb_entry->sess);
+			iscsi_block_session(ddb_entry->sess, false);
 			if (!test_bit(DF_RELOGIN, &ddb_entry->flags))
 				qla4xxx_arm_relogin_timer(ddb_entry);
 			status = QLA_SUCCESS;

@@ -3303,7 +3303,7 @@ void iscsi_conn_stop(struct iscsi_cls_conn *cls_conn, int flag)
 		if (session->state == ISCSI_STATE_IN_RECOVERY &&
 		    old_stop_stage != STOP_CONN_RECOVER) {
 			ISCSI_DBG_SESSION(session, "blocking session\n");
-			iscsi_block_session(session->cls_session);
+			iscsi_block_session(session->cls_session, true);
 		}
 	}
 

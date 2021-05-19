@@ -2000,9 +2000,11 @@ static void __iscsi_block_session(struct work_struct *work)
 				   session->recovery_tmo * HZ);
 }
 
-void iscsi_block_session(struct iscsi_cls_session *session)
+void iscsi_block_session(struct iscsi_cls_session *session, bool sync)
 {
 	queue_work(iscsi_eh_timer_workq, &session->block_work);
+	if (sync)
+		flush_work(&session->block_work);
 }
 EXPORT_SYMBOL_GPL(iscsi_block_session);
 

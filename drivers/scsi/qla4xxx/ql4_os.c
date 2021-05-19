@@ -4027,7 +4027,7 @@ static void qla4xxx_stop_timer(struct scsi_qla_host *ha)
  **/
 void qla4xxx_mark_device_missing(struct iscsi_cls_session *cls_session)
 {
-	iscsi_block_session(cls_session);
+	iscsi_block_session(cls_session, false);
 }
 
 /**
@@ -4833,7 +4833,7 @@ static void qla4xxx_fail_session(struct iscsi_cls_session *cls_session)
 	ddb_entry->fw_ddb_device_state = DDB_DS_SESSION_FAILED;
 
 	if (ddb_entry->ddb_type == FLASH_DDB)
-		iscsi_block_session(ddb_entry->sess);
+		iscsi_block_session(ddb_entry->sess, false);
 	else
 		iscsi_session_failure(cls_session->dd_data,
 				      ISCSI_ERR_CONN_FAILED);
@@ -6954,7 +6954,7 @@ static int qla4xxx_sess_conn_setup(struct scsi_qla_host *ha,
 	qla4xxx_update_sess_disc_idx(ha, ddb_entry, fw_ddb_entry);
 
 	if (is_reset == RESET_ADAPTER) {
-		iscsi_block_session(cls_sess);
+		iscsi_block_session(cls_sess, false);
 		/* Use the relogin path to discover new devices
 		 *  by short-circuiting the logic of setting
 		 *  timer to relogin - instead set the flags
