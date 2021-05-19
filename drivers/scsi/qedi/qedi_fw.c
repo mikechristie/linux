@@ -761,12 +761,15 @@ static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
 		  proto_itt, tmf_hdr->flags, qedi_conn->iscsi_conn_id);
 
 	spin_lock_bh(&conn->session->back_lock);
+	spin_lock_bh(&task->lock);
 	if (iscsi_task_is_completed(task)) {
+		spin_unlock_bh(&task->lock);
 		QEDI_NOTICE(&qedi->dbg_ctx,
 			    "IO task completed, tmf rtt=0x%x, cid=0x%x\n",
 			   get_itt(tmf_hdr->rtt), qedi_conn->iscsi_conn_id);
 		goto unlock;
 	}
+	spin_unlock_bh(&task->lock);
 
 	dbg_cmd = task->dd_data;
 
@@ -1321,7 +1324,9 @@ static void qedi_abort_work(struct work_struct *work)
 		goto clear_cleanup;
 	}
 
+	spin_lock_bh(&ctask->lock);
 	if (iscsi_task_is_completed(ctask)) {
+		spin_unlock_bh(&ctask->lock);
 		QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
 			  "Task already completed\n");
 		/*
@@ -1330,6 +1335,7 @@ static void qedi_abort_work(struct work_struct *work)
 		 */
 		goto send_tmf;
 	}
+	spin_unlock_bh(&ctask->lock);
 
 	cmd = (struct qedi_cmd *)ctask->dd_data;
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
