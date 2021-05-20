@@ -345,6 +345,7 @@ static int beiscsi_eh_device_reset(struct scsi_cmnd *sc)
 	iter_data.lun = sc->device->lun;
 	iter_data.rc = 0;
 	iter_data.fn = beiscsi_dev_reset_sc_iter;
+	iter_data.get_ref = true;
 
 	iscsi_conn_for_each_sc(conn, &iter_data);
 	spin_unlock_bh(&session->frwd_lock);

@@ -501,6 +501,7 @@ struct iscsi_sc_iter_data {
 	struct iscsi_conn *conn;
 	/* optional: if set to -1. It will be ignored */
 	u64 lun;
+	bool get_ref;
 	void *data;
 	int rc;
 	bool (*fn)(struct scsi_cmnd *sc, void *data, bool rsvd);
