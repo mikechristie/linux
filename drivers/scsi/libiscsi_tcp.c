@@ -583,7 +583,7 @@ static int iscsi_tcp_r2t_rsp(struct iscsi_conn *conn, struct iscsi_hdr *hdr)
 		goto put_task;
 	}
 
-	if (session->state != ISCSI_STATE_LOGGED_IN) {
+	if (READ_ONCE(session->state) != ISCSI_STATE_LOGGED_IN) {
 		iscsi_conn_printk(KERN_INFO, conn,
 				  "dropping R2T itt %d in recovery.\n",
 				  task->itt);
