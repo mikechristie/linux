@@ -237,7 +237,7 @@ EXPORT_SYMBOL_GPL(vhost_poll_stop);
  * locks that are also used by the callback. */
 void vhost_poll_flush(struct vhost_poll *poll)
 {
-	vhost_work_dev_flush(poll->dev);
+	vhost_vq_work_flush(poll->vq);
 }
 EXPORT_SYMBOL_GPL(vhost_poll_flush);
 
@@ -257,22 +257,6 @@ static void vhost_work_queue_on(struct vhost_work *work,
 	}
 }
 
-/*
- * This is a temp helper. The next patches will convert users to
- * queue a specific vq or poll and it will be removed.
- */
-void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
-{
-	if (!dev->workers)
-		return;
-	/*
-	 * devs with use_worker=true created by tools that do not support the
-	 * worker creation ioctl will always have at least one worker.
-	 */
-	vhost_work_queue_on(work, dev->workers[0]);
-}
-EXPORT_SYMBOL_GPL(vhost_work_queue);
-
 static void vhost_work_flush_on(struct vhost_worker *worker)
 {
 	struct vhost_flush_struct flush;
@@ -286,19 +270,6 @@ static void vhost_work_flush_on(struct vhost_worker *worker)
 	vhost_work_queue_on(&flush.work, worker);
 	wait_for_completion(&flush.wait_event);
 }
-
-/*
- * This is a temp helper. The next patches will convert users to flush a
- * specific vq or poll and it will be removed.
- */
-void vhost_work_dev_flush(struct vhost_dev *dev)
-{
-	int i;
-
-	for (i = 0; i < dev->num_workers; i++)
-		vhost_work_flush_on(dev->workers[i]);
-}
-EXPORT_SYMBOL_GPL(vhost_work_dev_flush);
 
 /* A lockless hint for busy polling code to exit the loop */
 bool vhost_vq_has_work(struct vhost_virtqueue *vq)
