@@ -29,6 +29,7 @@ struct vhost_worker {
 	struct task_struct	*task;
 	struct llist_head	work_list;
 	struct vhost_dev	*dev;
+	int			id;
 };
 
 /* Poll a file (eventfd or socket) */
@@ -74,6 +75,7 @@ struct vhost_vring_call {
 /* The virtqueue structure describes a queue attached to a device. */
 struct vhost_virtqueue {
 	struct vhost_dev *dev;
+	struct vhost_worker *worker;
 
 	/* The actual ring of buffers. */
 	struct mutex mutex;
@@ -154,7 +156,8 @@ struct vhost_dev {
 	struct vhost_virtqueue **vqs;
 	int nvqs;
 	struct eventfd_ctx *log_ctx;
-	struct vhost_worker *worker;
+	struct vhost_worker **workers;
+	int num_workers;
 	struct vhost_iotlb *umem;
 	struct vhost_iotlb *iotlb;
 	spinlock_t iotlb_lock;

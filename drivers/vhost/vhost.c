@@ -231,20 +231,6 @@ void vhost_poll_stop(struct vhost_poll *poll)
 }
 EXPORT_SYMBOL_GPL(vhost_poll_stop);
 
-void vhost_work_dev_flush(struct vhost_dev *dev)
-{
-	struct vhost_flush_struct flush;
-
-	if (dev->worker) {
-		init_completion(&flush.wait_event);
-		vhost_work_init(&flush.work, vhost_flush_work);
-
-		vhost_work_queue(dev, &flush.work);
-		wait_for_completion(&flush.wait_event);
-	}
-}
-EXPORT_SYMBOL_GPL(vhost_work_dev_flush);
-
 /* Flush any work that has been scheduled. When calling this, don't hold any
  * locks that are also used by the callback. */
 void vhost_poll_flush(struct vhost_poll *poll)
@@ -253,9 +239,10 @@ void vhost_poll_flush(struct vhost_poll *poll)
 }
 EXPORT_SYMBOL_GPL(vhost_poll_flush);
 
-void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
+static void vhost_work_queue_on(struct vhost_work *work,
+				struct vhost_worker *worker)
 {
-	if (!dev->worker)
+	if (!worker)
 		return;
 
 	if (!test_and_set_bit(VHOST_WORK_QUEUED, &work->flags)) {
@@ -263,16 +250,58 @@ void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
 		 * sure it was not in the list.
 		 * test_and_set_bit() implies a memory barrier.
 		 */
-		llist_add(&work->node, &dev->worker->work_list);
-		wake_up_process(dev->worker->task);
+		llist_add(&work->node, &worker->work_list);
+		wake_up_process(worker->task);
 	}
 }
+
+/*
+ * This is a temp helper. The next patches will convert users to
+ * queue a specific vq or poll and it will be removed.
+ */
+void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work)
+{
+	if (!dev->workers)
+		return;
+	/*
+	 * devs with use_worker=true created by tools that do not support the
+	 * worker creation ioctl will always have at least one worker.
+	 */
+	vhost_work_queue_on(work, dev->workers[0]);
+}
 EXPORT_SYMBOL_GPL(vhost_work_queue);
+
+static void vhost_work_flush_on(struct vhost_worker *worker)
+{
+	struct vhost_flush_struct flush;
+
+	if (!worker)
+		return;
+
+	init_completion(&flush.wait_event);
+	vhost_work_init(&flush.work, vhost_flush_work);
+
+	vhost_work_queue_on(&flush.work, worker);
+	wait_for_completion(&flush.wait_event);
+}
+
+/*
+ * This is a temp helper. The next patches will convert users to flush a
+ * specific vq or poll and it will be removed.
+ */
+void vhost_work_dev_flush(struct vhost_dev *dev)
+{
+	int i;
+
+	for (i = 0; i < dev->num_workers; i++)
+		vhost_work_flush_on(dev->workers[i]);
+}
+EXPORT_SYMBOL_GPL(vhost_work_dev_flush);
 
 /* A lockless hint for busy polling code to exit the loop */
 bool vhost_vq_has_work(struct vhost_virtqueue *vq)
 {
-	return vq->dev->worker && !llist_empty(&vq->dev->worker->work_list);
+	return vq->worker && !llist_empty(&vq->worker->work_list);
 }
 EXPORT_SYMBOL_GPL(vhost_vq_has_work);
 
@@ -337,6 +366,7 @@ static void vhost_vq_reset(struct vhost_dev *dev,
 	vq->busyloop_timeout = 0;
 	vq->umem = NULL;
 	vq->iotlb = NULL;
+	vq->worker = NULL;
 	vhost_vring_call_reset(&vq->call_ctx);
 	__vhost_vq_meta_reset(vq);
 }
@@ -482,7 +512,8 @@ void vhost_dev_init(struct vhost_dev *dev,
 	dev->umem = NULL;
 	dev->iotlb = NULL;
 	dev->mm = NULL;
-	dev->worker = NULL;
+	dev->workers = NULL;
+	dev->num_workers = 0;
 	dev->iov_limit = iov_limit;
 	dev->weight = weight;
 	dev->byte_weight = byte_weight;
@@ -531,14 +562,14 @@ static void vhost_attach_cgroups_work(struct vhost_work *work)
 	s->ret = cgroup_attach_task_all(s->owner, current);
 }
 
-static int vhost_attach_cgroups(struct vhost_dev *dev)
+static int vhost_attach_cgroups_on(struct vhost_worker *worker)
 {
 	struct vhost_attach_cgroups_struct attach;
 
 	attach.owner = current;
 	vhost_work_init(&attach.work, vhost_attach_cgroups_work);
-	vhost_work_queue(dev, &attach.work);
-	vhost_work_dev_flush(dev);
+	vhost_work_queue_on(&attach.work, worker);
+	vhost_work_flush_on(worker);
 	return attach.ret;
 }
 
@@ -579,20 +610,29 @@ static void vhost_detach_mm(struct vhost_dev *dev)
 	dev->mm = NULL;
 }
 
-static void vhost_worker_free(struct vhost_dev *dev)
+static void vhost_worker_free(struct vhost_worker *worker)
 {
-	struct vhost_worker *worker = dev->worker;
-
-	if (!worker)
-		return;
-
-	dev->worker = NULL;
 	WARN_ON(!llist_empty(&worker->work_list));
 	kthread_stop(worker->task);
 	kfree(worker);
 }
 
-static int vhost_worker_create(struct vhost_dev *dev)
+static void vhost_workers_free(struct vhost_dev *dev)
+{
+	int i;
+
+	if (!dev->workers)
+		return;
+
+	for (i = 0; i < dev->num_workers; i++)
+		vhost_worker_free(dev->workers[i]);
+
+	kfree(dev->workers);
+	dev->num_workers = 0;
+	dev->workers = NULL;
+}
+
+static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 {
 	struct vhost_worker *worker;
 	struct task_struct *task;
@@ -600,42 +640,61 @@ static int vhost_worker_create(struct vhost_dev *dev)
 
 	worker = kzalloc(sizeof(*worker), GFP_KERNEL_ACCOUNT);
 	if (!worker)
-		return -ENOMEM;
+		return NULL;
 
-	dev->worker = worker;
+	worker->id = dev->num_workers;
 	worker->dev = dev;
 	init_llist_head(&worker->work_list);
 
 	task = kthread_create(vhost_worker, worker, "vhost-%d", current->pid);
-	if (IS_ERR(task)) {
-		ret = PTR_ERR(task);
+	if (IS_ERR(task))
 		goto free_worker;
-	}
 
 	worker->task = task;
 	wake_up_process(task); /* avoid contributing to loadavg */
 
-	ret = vhost_attach_cgroups(dev);
+	ret = vhost_attach_cgroups_on(worker);
 	if (ret)
 		goto stop_worker;
 
-	return 0;
+	return worker;
 
 stop_worker:
 	kthread_stop(worker->task);
 free_worker:
 	kfree(worker);
-	dev->worker = NULL;
-	return ret;
+	return NULL;
 }
 
 /* Caller must have device mutex */
 static int vhost_worker_try_create_def(struct vhost_dev *dev)
 {
-	if (!dev->use_worker || dev->worker)
+	struct vhost_worker *worker;
+	int i;
+
+	if (!dev->use_worker || dev->workers)
 		return 0;
 
-	return vhost_worker_create(dev);
+	dev->workers = kcalloc(1, sizeof(struct vhost_worker *),
+			       GFP_KERNEL_ACCOUNT);
+	if (!dev->workers)
+		return -ENOMEM;
+
+	worker = vhost_worker_create(dev);
+	if (!worker)
+		goto free_workers;
+
+	for (i = 0; i < dev->nvqs; i++)
+		dev->vqs[i]->worker = worker;
+
+	dev->workers[worker->id] = worker;
+	dev->num_workers++;
+	return 0;
+
+free_workers:
+	kfree(dev->workers);
+	dev->workers = NULL;
+	return -ENOMEM;
 }
 
 /* Caller should have device mutex */
@@ -750,7 +809,7 @@ void vhost_dev_cleanup(struct vhost_dev *dev)
 	dev->iotlb = NULL;
 	vhost_clear_msg(dev);
 	wake_up_interruptible_poll(&dev->wait, EPOLLIN | EPOLLRDNORM);
-	vhost_worker_free(dev);
+	vhost_workers_free(dev);
 	vhost_detach_mm(dev);
 	dev->kcov_handle = 0;
 }
