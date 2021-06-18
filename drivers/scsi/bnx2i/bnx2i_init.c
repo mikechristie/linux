@@ -416,7 +416,7 @@ static int bnx2i_cpu_online(unsigned int cpu)
 	p = &per_cpu(bnx2i_percpu, cpu);
 
 	thread = kthread_create_on_node(bnx2i_percpu_io_thread, (void *)p,
-					cpu_to_node(cpu),
+					cpu_to_node(cpu), NULL,
 					"bnx2i_thread/%d", cpu);
 	if (IS_ERR(thread))
 		return PTR_ERR(thread);

@@ -728,7 +728,7 @@ svc_start_kthreads(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 
 		__module_get(serv->sv_ops->svo_module);
 		task = kthread_create_on_node(serv->sv_ops->svo_function, rqstp,
-					      node, "%s", serv->sv_name);
+					      node, NULL, "%s", serv->sv_name);
 		if (IS_ERR(task)) {
 			module_put(serv->sv_ops->svo_module);
 			svc_exit_thread(rqstp);

@@ -427,6 +427,7 @@ struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
  * @threadfn: the function to run until signal_pending(current).
  * @data: data ptr for @threadfn.
  * @node: task and thread structures for the thread are allocated on this node
+ * @user: optional user_struct that will have its RLIMIT_NPROC checked
  * @namefmt: printf-style name for the thread.
  *
  * Description: This helper function creates and names a kernel
@@ -447,6 +448,7 @@ struct task_struct *__kthread_create_on_node(int (*threadfn)(void *data),
  */
 struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 					   void *data, int node,
+					   struct user_struct *user,
 					   const char namefmt[],
 					   ...)
 {
@@ -454,7 +456,7 @@ struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 	va_list args;
 
 	va_start(args, namefmt);
-	task = __kthread_create_on_node(threadfn, data, node, NULL, namefmt,
+	task = __kthread_create_on_node(threadfn, data, node, user, namefmt,
 					args);
 	va_end(args);
 
@@ -519,8 +521,8 @@ struct task_struct *kthread_create_on_cpu(int (*threadfn)(void *data),
 {
 	struct task_struct *p;
 
-	p = kthread_create_on_node(threadfn, data, cpu_to_node(cpu), namefmt,
-				   cpu);
+	p = kthread_create_on_node(threadfn, data, cpu_to_node(cpu), NULL,
+				   namefmt, cpu);
 	if (IS_ERR(p))
 		return p;
 	kthread_bind(p, cpu);

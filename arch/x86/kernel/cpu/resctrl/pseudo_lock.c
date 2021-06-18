@@ -1179,17 +1179,17 @@ static int pseudo_lock_measure_cycles(struct rdtgroup *rdtgrp, int sel)
 
 	if (sel == 1)
 		thread = kthread_create_on_node(measure_cycles_lat_fn, plr,
-						cpu_to_node(cpu),
+						cpu_to_node(cpu), NULL,
 						"pseudo_lock_measure/%u",
 						cpu);
 	else if (sel == 2)
 		thread = kthread_create_on_node(measure_l2_residency, plr,
-						cpu_to_node(cpu),
+						cpu_to_node(cpu), NULL,
 						"pseudo_lock_measure/%u",
 						cpu);
 	else if (sel == 3)
 		thread = kthread_create_on_node(measure_l3_residency, plr,
-						cpu_to_node(cpu),
+						cpu_to_node(cpu), NULL,
 						"pseudo_lock_measure/%u",
 						cpu);
 	else
@@ -1289,7 +1289,7 @@ int rdtgroup_pseudo_lock_create(struct rdtgroup *rdtgrp)
 	plr->thread_done = 0;
 
 	thread = kthread_create_on_node(pseudo_lock_fn, rdtgrp,
-					cpu_to_node(plr->cpu),
+					cpu_to_node(plr->cpu), NULL,
 					"pseudo_lock/%u", plr->cpu);
 	if (IS_ERR(thread)) {
 		ret = PTR_ERR(thread);

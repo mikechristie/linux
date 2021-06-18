@@ -401,7 +401,7 @@ __cpu_map_entry_alloc(struct bpf_map *map, struct bpf_cpumap_val *value,
 
 	/* Setup kthread */
 	rcpu->kthread = kthread_create_on_node(cpu_map_kthread_run, rcpu, numa,
-					       "cpumap/%d/map:%d", cpu,
+					       NULL, "cpumap/%d/map:%d", cpu,
 					       map->id);
 	if (IS_ERR(rcpu->kthread))
 		goto free_prog;
