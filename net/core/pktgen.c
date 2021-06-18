@@ -3696,7 +3696,7 @@ static int __net_init pktgen_create_thread(int cpu, struct pktgen_net *pn)
 
 	p = kthread_create_on_node(pktgen_thread_worker,
 				   t,
-				   cpu_to_node(cpu),
+				   cpu_to_node(cpu), NULL,
 				   "kpktgend_%d", cpu);
 	if (IS_ERR(p)) {
 		pr_err("kthread_create_on_node() failed for cpu %d\n", t->cpu);

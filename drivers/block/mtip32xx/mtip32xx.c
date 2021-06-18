@@ -3704,7 +3704,7 @@ skip_create_disk:
 
 start_service_thread:
 	dd->mtip_svc_handler = kthread_create_on_node(mtip_service_thread,
-						dd, dd->numa_node,
+						dd, dd->numa_node, NULL,
 						"mtip_svc_thd_%02d", index);
 
 	if (IS_ERR(dd->mtip_svc_handler)) {

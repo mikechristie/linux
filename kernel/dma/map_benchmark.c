@@ -137,7 +137,8 @@ static int do_map_benchmark(struct map_benchmark_data *map)
 
 	for (i = 0; i < threads; i++) {
 		tsk[i] = kthread_create_on_node(map_benchmark_thread, map,
-				map->bparam.node, "dma-map-benchmark/%d", i);
+				map->bparam.node, NULL, "dma-map-benchmark/%d",
+				i);
 		if (IS_ERR(tsk[i])) {
 			pr_err("create dma_map thread failed\n");
 			ret = PTR_ERR(tsk[i]);

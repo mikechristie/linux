@@ -1962,7 +1962,7 @@ static int qedi_cpu_online(unsigned int cpu)
 	struct task_struct *thread;
 
 	thread = kthread_create_on_node(qedi_percpu_io_thread, (void *)p,
-					cpu_to_node(cpu),
+					cpu_to_node(cpu), NULL,
 					"qedi_thread/%d", cpu);
 	if (IS_ERR(thread))
 		return PTR_ERR(thread);

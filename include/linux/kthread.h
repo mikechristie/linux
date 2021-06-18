@@ -7,10 +7,11 @@
 
 struct mm_struct;
 
-__printf(4, 5)
+__printf(5, 6)
 struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 					   void *data,
 					   int node,
+					   struct user_struct *user,
 					   const char namefmt[], ...);
 
 /**
@@ -25,7 +26,8 @@ struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
  * see the documentation there for more details.
  */
 #define kthread_create(threadfn, data, namefmt, arg...) \
-	kthread_create_on_node(threadfn, data, NUMA_NO_NODE, namefmt, ##arg)
+	kthread_create_on_node(threadfn, data, NUMA_NO_NODE, NULL, namefmt, \
+			       ##arg)
 
 
 struct task_struct *kthread_create_on_cpu(int (*threadfn)(void *data),

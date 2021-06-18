@@ -567,7 +567,7 @@ static int svc_get_sh_memory(struct platform_device *pdev,
 	/* smc or hvc call happens on cpu 0 bound kthread */
 	sh_memory_task = kthread_create_on_node(svc_normal_to_secure_shm_thread,
 					       (void *)sh_memory,
-						cpu_to_node(cpu),
+						cpu_to_node(cpu), NULL,
 						"svc_smc_hvc_shm_thread");
 	if (IS_ERR(sh_memory_task)) {
 		dev_err(dev, "fail to create stratix10_svc_smc_shm_thread\n");
@@ -818,7 +818,7 @@ int stratix10_svc_send(struct stratix10_svc_chan *chan, void *msg)
 		chan->ctrl->task =
 			kthread_create_on_node(svc_normal_to_secure_thread,
 					      (void *)chan->ctrl,
-					      cpu_to_node(cpu),
+					      cpu_to_node(cpu), NULL,
 					      "svc_smc_hvc_thread");
 			if (IS_ERR(chan->ctrl->task)) {
 				dev_err(chan->ctrl->dev,
