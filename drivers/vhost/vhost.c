@@ -182,10 +182,12 @@ static int vhost_poll_wakeup(wait_queue_entry_t *wait, unsigned mode, int sync,
 	return 0;
 }
 
-void vhost_work_init(struct vhost_work *work, vhost_work_fn_t fn)
+void vhost_work_init(struct vhost_dev *dev, struct vhost_work *work,
+		     vhost_work_fn_t fn)
 {
 	clear_bit(VHOST_WORK_QUEUED, &work->flags);
 	work->fn = fn;
+	work->dev = dev;
 }
 EXPORT_SYMBOL_GPL(vhost_work_init);
 
@@ -201,7 +203,7 @@ void vhost_poll_init(struct vhost_poll *poll, vhost_work_fn_t fn,
 	poll->wqh = NULL;
 	poll->vq = vq;
 
-	vhost_work_init(&poll->work, fn);
+	vhost_work_init(dev, &poll->work, fn);
 }
 EXPORT_SYMBOL_GPL(vhost_poll_init);
 
@@ -261,7 +263,8 @@ static void vhost_work_queue_on(struct vhost_work *work,
 	}
 }
 
-static void vhost_work_flush_on(struct vhost_worker *worker)
+static void vhost_work_flush_on(struct vhost_dev *dev,
+				struct vhost_worker *worker)
 {
 	struct vhost_flush_struct flush;
 
@@ -269,7 +272,7 @@ static void vhost_work_flush_on(struct vhost_worker *worker)
 		return;
 
 	init_completion(&flush.wait_event);
-	vhost_work_init(&flush.work, vhost_flush_work);
+	vhost_work_init(dev, &flush.work, vhost_flush_work);
 
 	vhost_work_queue_on(&flush.work, worker);
 	wait_for_completion(&flush.wait_event);
@@ -284,7 +287,7 @@ EXPORT_SYMBOL_GPL(vhost_vq_has_work);
 
 void vhost_vq_work_flush(struct vhost_virtqueue *vq)
 {
-	vhost_work_flush_on(vq->worker);
+	vhost_work_flush_on(vq->dev, vq->worker);
 }
 EXPORT_SYMBOL_GPL(vhost_vq_work_flush);
 
@@ -551,14 +554,15 @@ static void vhost_attach_cgroups_work(struct vhost_work *work)
 	s->ret = cgroup_attach_task_all(s->owner, current);
 }
 
-static int vhost_attach_cgroups_on(struct vhost_worker *worker)
+static int vhost_attach_cgroups_on(struct vhost_dev *dev,
+				   struct vhost_worker *worker)
 {
 	struct vhost_attach_cgroups_struct attach;
 
 	attach.owner = current;
-	vhost_work_init(&attach.work, vhost_attach_cgroups_work);
+	vhost_work_init(dev, &attach.work, vhost_attach_cgroups_work);
 	vhost_work_queue_on(&attach.work, worker);
-	vhost_work_flush_on(worker);
+	vhost_work_flush_on(dev, worker);
 	return attach.ret;
 }
 
@@ -655,7 +659,7 @@ static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 	worker->task = task;
 	wake_up_process(task); /* avoid contributing to loadavg */
 
-	ret = vhost_attach_cgroups_on(worker);
+	ret = vhost_attach_cgroups_on(dev, worker);
 	if (ret)
 		goto stop_worker;
 

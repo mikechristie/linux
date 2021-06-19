@@ -1807,7 +1807,7 @@ static int vhost_scsi_open(struct inode *inode, struct file *f)
 	if (!vqs)
 		goto err_vqs;
 
-	vhost_work_init(&vs->vs_event_work, vhost_scsi_evt_work);
+	vhost_work_init(&vs->dev, &vs->vs_event_work, vhost_scsi_evt_work);
 
 	vs->vs_events_nr = 0;
 	vs->vs_events_missed = false;
@@ -1822,7 +1822,7 @@ static int vhost_scsi_open(struct inode *inode, struct file *f)
 		vqs[i] = &svq->vq;
 		svq->vs = vs;
 		init_llist_head(&svq->completion_list);
-		vhost_work_init(&svq->completion_work,
+		vhost_work_init(&vs->dev, &svq->completion_work,
 				vhost_scsi_complete_cmd_work);
 		svq->vq.handle_kick = vhost_scsi_handle_kick;
 	}
@@ -2016,7 +2016,8 @@ static int vhost_scsi_port_link(struct se_portal_group *se_tpg,
 	if (!tmf)
 		return -ENOMEM;
 	INIT_LIST_HEAD(&tmf->queue_entry);
-	vhost_work_init(&tmf->vwork, vhost_scsi_tmf_resp_work);
+	vhost_work_init(&tpg->vhost_scsi->dev, &tmf->vwork,
+			vhost_scsi_tmf_resp_work);
 
 	mutex_lock(&vhost_scsi_mutex);
 
