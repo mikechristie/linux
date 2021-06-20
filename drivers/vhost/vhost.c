@@ -31,6 +31,7 @@
 #include <linux/nospec.h>
 #include <linux/kcov.h>
 #include <linux/hashtable.h>
+#include <linux/pid_namespace.h>
 
 #include "vhost.h"
 
@@ -366,11 +367,9 @@ static void vhost_vq_reset(struct vhost_dev *dev,
 static int vhost_worker(void *data)
 {
 	struct vhost_worker *worker = data;
-	struct vhost_dev *dev = worker->dev;
 	struct vhost_work *work, *work_next;
+	struct vhost_dev *dev;
 	struct llist_node *node;
-
-	kthread_use_mm(dev->mm);
 
 	for (;;) {
 		/* mb paired w/ kthread_stop */
@@ -390,15 +389,20 @@ static int vhost_worker(void *data)
 		smp_wmb();
 		llist_for_each_entry_safe(work, work_next, node, node) {
 			clear_bit(VHOST_WORK_QUEUED, &work->flags);
+			dev = work->dev;
+
+			kthread_use_mm(dev->mm);
+
 			__set_current_state(TASK_RUNNING);
 			kcov_remote_start_common(dev->kcov_handle);
 			work->fn(work);
 			kcov_remote_stop();
 			if (need_resched())
 				schedule();
+
+			kthread_unuse_mm(dev->mm);
 		}
 	}
-	kthread_unuse_mm(dev->mm);
 	return 0;
 }
 
@@ -645,7 +649,6 @@ static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 		return NULL;
 
 	worker->id = dev->num_workers;
-	worker->dev = dev;
 	init_llist_head(&worker->work_list);
 	INIT_HLIST_NODE(&worker->vhost_workers_node);
 	refcount_set(&worker->refcount, 1);
@@ -681,11 +684,8 @@ static struct vhost_worker *vhost_worker_find(struct vhost_dev *dev, pid_t pid)
 
 	spin_lock(&vhost_workers_lock);
 	hash_for_each_possible(vhost_workers, worker, vhost_workers_node, pid) {
-		if (worker->task->pid == pid) {
-			/* tmp - next patch allows sharing across devs */
-			if (worker->dev != dev)
-				break;
-
+		if (task_active_pid_ns(worker->task) ==
+		    task_active_pid_ns(current) && worker->task->pid == pid) {
 			found_worker = worker;
 			refcount_inc(&worker->refcount);
 			break;

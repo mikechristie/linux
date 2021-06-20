@@ -32,7 +32,6 @@ struct vhost_worker {
 	struct llist_head	work_list;
 	struct hlist_node	vhost_workers_node;
 	refcount_t		refcount;
-	struct vhost_dev	*dev;
 	int			id;
 };
 
