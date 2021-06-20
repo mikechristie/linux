@@ -14,6 +14,7 @@
 #include <linux/atomic.h>
 #include <linux/vhost_iotlb.h>
 #include <linux/irqbypass.h>
+#include <linux/refcount.h>
 
 struct vhost_work;
 typedef void (*vhost_work_fn_t)(struct vhost_work *work);
@@ -28,6 +29,8 @@ struct vhost_work {
 struct vhost_worker {
 	struct task_struct	*task;
 	struct llist_head	work_list;
+	struct hlist_node	vhost_workers_node;
+	refcount_t		refcount;
 	struct vhost_dev	*dev;
 	int			id;
 };

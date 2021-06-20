@@ -70,6 +70,14 @@
 #define VHOST_VRING_BIG_ENDIAN 1
 #define VHOST_SET_VRING_ENDIAN _IOW(VHOST_VIRTIO, 0x13, struct vhost_vring_state)
 #define VHOST_GET_VRING_ENDIAN _IOW(VHOST_VIRTIO, 0x14, struct vhost_vring_state)
+/* Create/bind a vhost worker to a virtqueue. If pid > 0 and matches an existing
+ * vhost_worker thread it will be bound to the vq. If pid is
+ * VHOST_VRING_NEW_WORKER, then a new worker will be created and bound to the
+ * vq.
+ *
+ * This must be called after VHOST_SET_OWNER and before VHOST_SET_VRING_KICK.
+ */
+#define VHOST_SET_VRING_WORKER _IOWR(VHOST_VIRTIO, 0x15, struct vhost_vring_worker)
 
 /* The following ioctls use eventfd file descriptors to signal and poll
  * for events. */

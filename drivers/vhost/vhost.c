@@ -30,6 +30,7 @@
 #include <linux/interval_tree_generic.h>
 #include <linux/nospec.h>
 #include <linux/kcov.h>
+#include <linux/hashtable.h>
 
 #include "vhost.h"
 
@@ -41,6 +42,9 @@ static int max_iotlb_entries = 2048;
 module_param(max_iotlb_entries, int, 0444);
 MODULE_PARM_DESC(max_iotlb_entries,
 	"Maximum number of iotlb entries. (default: 2048)");
+
+static DEFINE_HASHTABLE(vhost_workers, 5);
+static DEFINE_SPINLOCK(vhost_workers_lock);
 
 enum {
 	VHOST_MEMORY_F_LOG = 0x1,
@@ -595,8 +599,17 @@ static void vhost_detach_mm(struct vhost_dev *dev)
 	dev->mm = NULL;
 }
 
-static void vhost_worker_free(struct vhost_worker *worker)
+static void vhost_worker_put(struct vhost_worker *worker)
 {
+	spin_lock(&vhost_workers_lock);
+	if (!refcount_dec_and_test(&worker->refcount)) {
+		spin_unlock(&vhost_workers_lock);
+		return;
+	}
+
+	hash_del(&worker->vhost_workers_node);
+	spin_unlock(&vhost_workers_lock);
+
 	WARN_ON(!llist_empty(&worker->work_list));
 	kthread_stop(worker->task);
 	kfree(worker);
@@ -610,7 +623,7 @@ static void vhost_workers_free(struct vhost_dev *dev)
 		return;
 
 	for (i = 0; i < dev->num_workers; i++)
-		vhost_worker_free(dev->workers[i]);
+		vhost_worker_put(dev->workers[i]);
 
 	kfree(dev->workers);
 	dev->num_workers = 0;
@@ -630,8 +643,12 @@ static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 	worker->id = dev->num_workers;
 	worker->dev = dev;
 	init_llist_head(&worker->work_list);
+	INIT_HLIST_NODE(&worker->vhost_workers_node);
+	refcount_set(&worker->refcount, 1);
 
-	task = kthread_create(vhost_worker, worker, "vhost-%d", current->pid);
+	task = kthread_create_on_node(vhost_worker, worker, NUMA_NO_NODE,
+				      current->real_cred->user, "vhost-%d",
+				      current->pid);
 	if (IS_ERR(task))
 		goto free_worker;
 
@@ -642,6 +659,9 @@ static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 	if (ret)
 		goto stop_worker;
 
+	spin_lock(&vhost_workers_lock);
+	hash_add(vhost_workers, &worker->vhost_workers_node, worker->task->pid);
+	spin_unlock(&vhost_workers_lock);
 	return worker;
 
 stop_worker:
@@ -649,6 +669,68 @@ stop_worker:
 free_worker:
 	kfree(worker);
 	return NULL;
+}
+
+static struct vhost_worker *vhost_worker_find(struct vhost_dev *dev, pid_t pid)
+{
+	struct vhost_worker *worker, *found_worker = NULL;
+
+	spin_lock(&vhost_workers_lock);
+	hash_for_each_possible(vhost_workers, worker, vhost_workers_node, pid) {
+		if (worker->task->pid == pid) {
+			/* tmp - next patch allows sharing across devs */
+			if (worker->dev != dev)
+				break;
+
+			found_worker = worker;
+			refcount_inc(&worker->refcount);
+			break;
+		}
+	}
+	spin_unlock(&vhost_workers_lock);
+	return found_worker;
+}
+
+/* Caller must have device mutex */
+static int vhost_vq_set_worker(struct vhost_virtqueue *vq,
+			       struct vhost_vring_worker *info)
+{
+	struct vhost_dev *dev = vq->dev;
+	struct vhost_worker *worker;
+
+	if (vq->worker)
+		return -EBUSY;
+
+	if (dev->num_workers == vq->dev->nvqs)
+		return -EINVAL;
+
+	if (info->pid == VHOST_VRING_NEW_WORKER) {
+		worker = vhost_worker_create(dev);
+		if (!worker)
+			return -ENOMEM;
+
+		info->pid = worker->task->pid;
+	} else {
+		worker = vhost_worker_find(dev, info->pid);
+		if (!worker)
+			return -ENODEV;
+	}
+
+	if (!dev->workers) {
+		dev->workers = kcalloc(vq->dev->nvqs,
+				       sizeof(struct vhost_worker *),
+				       GFP_KERNEL_ACCOUNT);
+		if (!dev->workers) {
+			vhost_worker_put(worker);
+			return -ENOMEM;
+		}
+	}
+
+	vq->worker = worker;
+
+	dev->workers[dev->num_workers] = worker;
+	dev->num_workers++;
+	return 0;
 }
 
 /* Caller must have device mutex */
@@ -1659,6 +1741,7 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 	struct eventfd_ctx *ctx = NULL;
 	u32 __user *idxp = argp;
 	struct vhost_virtqueue *vq;
+	struct vhost_vring_worker w;
 	struct vhost_vring_state s;
 	struct vhost_vring_file f;
 	u32 idx;
@@ -1771,6 +1854,15 @@ long vhost_vring_ioctl(struct vhost_dev *d, unsigned int ioctl, void __user *arg
 		s.index = idx;
 		s.num = vq->busyloop_timeout;
 		if (copy_to_user(argp, &s, sizeof(s)))
+			r = -EFAULT;
+		break;
+	case VHOST_SET_VRING_WORKER:
+		if (copy_from_user(&w, argp, sizeof(w))) {
+			r = -EFAULT;
+			break;
+		}
+		r = vhost_vq_set_worker(vq, &w);
+		if (!r && copy_to_user(argp, &w, sizeof(w)))
 			r = -EFAULT;
 		break;
 	default:
@@ -2705,6 +2797,7 @@ EXPORT_SYMBOL_GPL(vhost_set_backend_features);
 
 static int __init vhost_init(void)
 {
+	hash_init(vhost_workers);
 	return 0;
 }
 

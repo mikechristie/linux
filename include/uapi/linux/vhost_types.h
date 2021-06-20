@@ -47,6 +47,18 @@ struct vhost_vring_addr {
 	__u64 log_guest_addr;
 };
 
+#define VHOST_VRING_NEW_WORKER -1
+
+struct vhost_vring_worker {
+	unsigned int index;
+	/*
+	 * The pid of the vhost worker that the vq will be bound to. If
+	 * pid is VHOST_VRING_NEW_WORKER a new worker will be created and its
+	 * pid will be returned in pid.
+	 */
+	__kernel_pid_t pid;
+};
+
 /* no alignment requirement */
 struct vhost_iotlb_msg {
 	__u64 iova;
